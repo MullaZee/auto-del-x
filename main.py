@@ -16,28 +16,37 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
+#!/usr/bin/env python3
 import asyncio
+import logging
 from time import time
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.errors import FloodWait
-from utils.info import Config
+from pyrogram.types import Message
 from utils.info import Config
 from utils.database import (
     save_message,
-    get_all_data,
-    delete_all_data,
-    save_group_settings,
     get_group_settings,
+    save_group_settings,
     get_all_authorized_groups,
     get_group_deletion_time
 )
 
-# Initialize the bot with proper config
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Initialize the bot
 Bot = Client(
-    "auto-delete-bot",
+    name="auto-delete-bot",
     api_id=Config.API_ID,
     api_hash=Config.API_HASH,
-    bot_token=Config.BOT_TOKEN
+    bot_token=Config.BOT_TOKEN,
+    workers=100,
+    sleep_threshold=10
 )
 
 async def initialize_chats():
@@ -47,12 +56,12 @@ async def initialize_chats():
         for group in authorized_groups:
             if group["chat_id"] not in Config.CHATS:
                 Config.CHATS.append(group["chat_id"])
-        print(f"Initialized {len(authorized_groups)} authorized groups")
+        logger.info(f"Initialized {len(authorized_groups)} authorized groups")
     except Exception as e:
-        print(f"Error initializing chats: {e}")
+        logger.error(f"Error initializing chats: {e}")
 
 @Bot.on_message(filters.chat(Config.CHATS))
-async def handle_messages(bot, message):
+async def handle_messages(bot: Client, message: Message):
     try:
         # Check group authorization
         settings = await get_group_settings(message.chat.id)
@@ -71,27 +80,33 @@ async def handle_messages(bot, message):
         # Schedule deletion
         delete_at = int(time()) + deletion_time
         await save_message(message, delete_at)
+        logger.debug(f"Scheduled deletion for message {message.id} in {message.chat.id}")
 
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        await handle_messages(bot, message)
     except Exception as e:
-        print(f"Error handling message in {message.chat.id}: {e}")
+        logger.error(f"Error handling message in {message.chat.id}: {e}")
 
 @Bot.on_message(filters.command("start") & filters.private)
-async def start(bot, message):
-    help_text = (
-        "🤖 Auto-Delete Bot\n\n"
-        "**Group Commands:**\n"
-        "`!auth` - Authorize bot in your group (admins only)\n"
-        "`!unauth` - Remove authorization\n"
-        "`!settime [seconds]` - Set custom deletion time (5-86400)\n"
-        "`!settings` - View current settings\n\n"
-        "Examples:\n"
-        "`!settime 60` - Delete after 1 minute\n"
-        "`!settime 3600` - Delete after 1 hour"
-    )
-    await message.reply(help_text)
+async def start(bot: Client, message: Message):
+    help_text = """
+🤖 <b>Auto-Delete Bot</b>
+
+<b>Group Commands:</b>
+• <code>!auth</code> - Authorize bot (admins only)
+• <code>!unauth</code> - Remove authorization
+• <code>!settime [seconds]</code> - Set custom deletion time (5-86400)
+• <code>!settings</code> - View current settings
+
+<b>Examples:</b>
+• <code>!settime 60</code> - Delete after 1 minute
+• <code>!settime 3600</code> - Delete after 1 hour
+"""
+    await message.reply(help_text, parse_mode="HTML")
 
 @Bot.on_message(filters.command("auth", prefixes="!"))
-async def handle_auth(bot, message):
+async def handle_auth(bot: Client, message: Message):
     try:
         if message.chat.type == "private":
             return await message.reply("❌ This command works only in groups!")
@@ -114,15 +129,17 @@ async def handle_auth(bot, message):
             Config.CHATS.append(message.chat.id)
         
         await message.reply("✅ Bot authorized! Messages will now auto-delete.")
+        logger.info(f"Authorized bot in group {message.chat.id}")
 
     except FloodWait as e:
         await asyncio.sleep(e.value)
         await handle_auth(bot, message)
     except Exception as e:
         await message.reply(f"⚠️ Error: {str(e)}")
+        logger.error(f"Auth error in {message.chat.id}: {e}")
 
 @Bot.on_message(filters.command("settime", prefixes="!"))
-async def handle_settime(bot, message):
+async def handle_settime(bot: Client, message: Message):
     try:
         if message.chat.type == "private":
             return await message.reply("❌ This command works only in groups!")
@@ -137,14 +154,14 @@ async def handle_settime(bot, message):
 
         args = message.text.split()
         if len(args) < 2:
-            return await message.reply("⌛ Usage: `!settime [seconds]`")
+            return await message.reply("⌛ Usage: <code>!settime [seconds]</code>", parse_mode="HTML")
 
         try:
             seconds = int(args[1])
-            if seconds < 5:
-                return await message.reply("⏱ Minimum time is 5 seconds!")
-            if seconds > 86400:
-                return await message.reply("⏱ Maximum time is 24 hours (86400 sec)!")
+            if seconds < Config.MIN_DELETION_TIME:
+                return await message.reply(f"⏱ Minimum time is {Config.MIN_DELETION_TIME} seconds!")
+            if seconds > Config.MAX_DELETION_TIME:
+                return await message.reply(f"⏱ Maximum time is {Config.MAX_DELETION_TIME} seconds!")
 
             await save_group_settings(
                 chat_id=message.chat.id,
@@ -152,6 +169,7 @@ async def handle_settime(bot, message):
                 deletion_time=seconds
             )
             await message.reply(f"✅ Auto-delete time set to {seconds} seconds!")
+            logger.info(f"Set time to {seconds}s in group {message.chat.id}")
 
         except ValueError:
             await message.reply("🔢 Please enter a valid number!")
@@ -161,9 +179,10 @@ async def handle_settime(bot, message):
         await handle_settime(bot, message)
     except Exception as e:
         await message.reply(f"⚠️ Error: {str(e)}")
+        logger.error(f"SetTime error in {message.chat.id}: {e}")
 
 @Bot.on_message(filters.command("settings", prefixes="!"))
-async def handle_settings(bot, message):
+async def handle_settings(bot: Client, message: Message):
     try:
         settings = await get_group_settings(message.chat.id)
         if not settings or not settings.get("authorized"):
@@ -171,19 +190,31 @@ async def handle_settings(bot, message):
 
         current_time = settings.get("deletion_time", Config.TIME)
         await message.reply(
-            f"⚙️ Current Settings:\n"
-            f"• Auto-delete time: {current_time} seconds\n"
-            f"• Status: {'✅ Authorized' if settings.get('authorized') else '❌ Unauthorized'}"
+            f"⚙️ <b>Current Settings:</b>\n"
+            f"• Auto-delete time: <code>{current_time}</code> seconds\n"
+            f"• Status: {'✅ Authorized' if settings.get('authorized') else '❌ Unauthorized'}",
+            parse_mode="HTML"
         )
     except Exception as e:
         await message.reply(f"⚠️ Error: {str(e)}")
+        logger.error(f"Settings error in {message.chat.id}: {e}")
 
 async def main():
-    await initialize_chats()
-    await Bot.start()
-    print("Bot started successfully!")
-    await idle()
+    try:
+        await initialize_chats()
+        await Bot.start()
+        logger.info("Bot started successfully!")
+        await idle()
+    except Exception as e:
+        logger.critical(f"Fatal error: {e}")
+    finally:
+        if await Bot.stop():
+            logger.info("Bot stopped gracefully")
 
 if __name__ == "__main__":
-    Config.validate()  # Ensure required configs are set
-    asyncio.run(main())
+    try:
+        Config.validate()
+        asyncio.run(main())
+    except Exception as e:
+        logger.critical(f"Startup failed: {e}")
+        raise
