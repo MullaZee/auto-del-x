@@ -17,63 +17,63 @@
 #=========================================================================
 
 import os
-from typing import List, Union
+from typing import List, Optional
+from pymongo import MongoClient
 
 class Config:
     # Required Telegram API credentials
-    API_ID: int = int(os.environ.get("API_ID", ""))
-    API_HASH: str = os.environ.get("API_HASH", "")
-    BOT_TOKEN: str = os.environ.get("BOT_TOKEN", "")
-    
-    # Session string (if needed for userbot functionality)
-    SESSION: str = os.environ.get("SESSION", "")
-    
-    # Default deletion time (seconds)
-    TIME: int = int(os.environ.get("TIME", 10))
-    
-    # Pre-authorized chats (legacy support)
-    CHATS: List[int] = [int(cht) for cht in os.environ.get("CHATS", "").split() if cht]
-    
-    # Whitelist and blacklist
-    WHITE_LIST: List[int] = [int(wht) for wht in os.environ.get("WHITE_LIST", "").split() if wht]
-    BLACK_LIST: List[int] = [int(blk) for blk in os.environ.get("BLACK_LIST", "").split() if blk]
+    API_ID: int = int(os.getenv("API_ID", 0))
+    API_HASH: str = os.getenv("API_HASH", "")
+    BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
     
     # Database configuration
-    DATABASE_URI: str = os.environ.get("DATABASE_URI", "")
+    DATABASE_URI: str = os.getenv("DATABASE_URI", "")
     
-    # Web server port
-    PORT: Union[str, int] = os.environ.get("PORT", "8080")
-    
-    # New settings for auth system
-    MIN_DELETION_TIME: int = 60  # Minimum allowed deletion time in seconds
+    # Time settings
+    TIME: int = int(os.getenv("TIME", 10))  # Default deletion time in seconds
+    MIN_DELETION_TIME: int = 5  # Minimum allowed seconds
     MAX_DELETION_TIME: int = 86400  # 24 hours in seconds
     
-    # Admin controls (optional)
-    ADMIN_ID: List[int] = [int(admin) for admin in os.environ.get("ADMIN_ID", "7439670062").split() if admin]
+    # Access control lists
+    CHATS: List[int] = [int(c) for c in os.getenv("CHATS", "").split() if c]
+    WHITE_LIST: List[int] = [int(w) for w in os.getenv("WHITE_LIST", "").split() if w]
+    BLACK_LIST: List[int] = [int(b) for b in os.getenv("BLACK_LIST", "").split() if b]
+    ADMIN_IDS: List[int] = [int(a) for a in os.getenv("ADMIN_IDS", "").split() if a]
     
-    # Web interface configuration (optional)
-    WEBHOOK: bool = os.environ.get("WEBHOOK", "False").lower() == "true"
-    WEBHOOK_URL: str = os.environ.get("WEBHOOK_URL", "")
+    # Server configuration
+    PORT: int = int(os.getenv("PORT", 8080))
+    WEBHOOK: bool = os.getenv("WEBHOOK", "false").lower() == "true"
+    WEBHOOK_URL: Optional[str] = os.getenv("WEBHOOK_URL")
+
+    # Database connection (will be initialized later)
+    db_client: MongoClient = None
+    db = None
 
     @classmethod
-    def check_config(cls):
-        """Validate essential configuration"""
-        errors = []
-        if not cls.API_ID:
-            errors.append("API_ID is missing!")
-        if not cls.API_HASH:
-            errors.append("API_HASH is missing!")
-        if not cls.BOT_TOKEN:
-            errors.append("BOT_TOKEN is missing!")
+    def init_db(cls):
+        """Initialize database connection"""
         if not cls.DATABASE_URI:
-            errors.append("DATABASE_URI is missing!")
-        
-        if errors:
-            raise ValueError("\n".join(errors))
-        
-        # Convert PORT to integer if it's numeric
-        if isinstance(cls.PORT, str) and cls.PORT.isdigit():
-            cls.PORT = int(cls.PORT)
+            raise ValueError("Database URI not configured")
+        try:
+            cls.db_client = MongoClient(cls.DATABASE_URI)
+            cls.db = cls.db_client["AutoDeleteBot"]
+            print("Database connection established")
+        except Exception as e:
+            raise ConnectionError(f"Failed to connect to database: {e}")
 
-# Validate configuration on import
-Config.check_config()
+    @classmethod
+    def validate(cls):
+        """Validate configuration"""
+        required = {
+            "API_ID": cls.API_ID,
+            "API_HASH": cls.API_HASH,
+            "BOT_TOKEN": cls.BOT_TOKEN,
+            "DATABASE_URI": cls.DATABASE_URI
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise ValueError(f"Missing required configuration: {', '.join(missing)}")
+
+# Initialize when imported
+Config.validate()
+Config.init_db()  # This establishes the database connection
