@@ -119,8 +119,6 @@ async def start(client: AutoDeleteBot, message: Message):
 """
     await message.reply(help_text, parse_mode="HTML")
 
-# [Keep all your other command handlers...]
-
 async def shutdown(signal=None):
     """Clean shutdown handler"""
     if signal:
@@ -131,11 +129,16 @@ async def main():
     """Main application entry point"""
     # Set up signal handlers
     loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(
-            sig,
-            lambda: asyncio.create_task(shutdown(sig))
     
+    def handle_signal(sig):
+        asyncio.create_task(shutdown(sig))
+    
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(sig, lambda s=sig: handle_signal(s))
+        except NotImplementedError:
+            logger.warning(f"Signal handling not supported for {sig}")
+
     try:
         await bot.initialize()
         await bot.start()
