@@ -16,34 +16,33 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
-from . import * 
-from pymongo import MongoClient
+from .info import Config
 
-dbclient = MongoClient(DATABASE_URI)
-db = dbclient["Auto-Delete"]
-messages_col = db["MESSAGES"]  # Renamed for clarity
-groups_col = db["GROUPS"]      # New collection for group settings
+# Initialize collections
+messages_col = Config.db["Messages"]
+groups_col = Config.db["Groups"]
 
-def save_message(message, time):
+def save_message(message, delete_time):
+    """Save message to database for future deletion"""
     data = {
         "chat_id": message.chat.id,
         "message_id": message.id,
-        "time": time
+        "time": delete_time
     }
     messages_col.insert_one(data)
-   
-def get_all_data(time):
-    data = {"time": {"$lte": time}}
-    all_data = list(messages_col.find(data))
-    return all_data
 
-def delete_all_data(all_data):
-    for data in all_data:
-        messages_col.delete_one(data)
+def get_all_data(current_time):
+    """Get all messages scheduled for deletion"""
+    query = {"time": {"$lte": current_time}}
+    return list(messages_col.find(query))
 
-# New functions for group management
+def delete_all_data(data_list):
+    """Delete processed messages from database"""
+    for data in data_list:
+        messages_col.delete_one({"_id": data["_id"]})
+
 def save_group_settings(chat_id, authorized=False, deletion_time=None):
-    """Save group authorization and custom deletion time"""
+    """Save group settings to database"""
     settings = {
         "chat_id": chat_id,
         "authorized": authorized,
@@ -56,14 +55,14 @@ def save_group_settings(chat_id, authorized=False, deletion_time=None):
     )
 
 def get_group_settings(chat_id):
-    """Retrieve group settings"""
+    """Get settings for specific group"""
     return groups_col.find_one({"chat_id": chat_id})
 
 def get_all_authorized_groups():
     """Get all authorized groups"""
-    return list(groups_col.find({"authorized": True})
+    return list(groups_col.find({"authorized": True}))
 
 def get_group_deletion_time(chat_id):
-    """Get custom deletion time for a group"""
+    """Get custom deletion time for group"""
     settings = groups_col.find_one({"chat_id": chat_id})
     return settings.get("deletion_time") if settings else None
