@@ -23,7 +23,7 @@ import signal
 import sys
 from time import time
 from pyrogram import Client, filters, idle
-from pyrogram.errors import FloodWait
+from pyrogram.errors import FloodWait, ConnectionError
 from pyrogram.types import Message
 from utils.info import Config
 from utils.database import (
@@ -52,6 +52,7 @@ class AutoDeleteBot(Client):
             sleep_threshold=10,
             in_memory=True
         )
+        self._is_running = False
         self._stop_event = asyncio.Event()
 
     async def initialize(self):
@@ -67,9 +68,21 @@ class AutoDeleteBot(Client):
 
     async def stop_bot(self):
         """Properly stop the bot"""
+        if not self._is_running:
+            logger.debug("Bot already stopped")
+            return
+            
         logger.info("Stopping bot...")
-        await self.stop()
-        self._stop_event.set()
+        try:
+            if self.is_connected:
+                await self.stop()
+        except ConnectionError:
+            logger.debug("Client was already disconnected")
+        except Exception as e:
+            logger.warning(f"Error during stop: {e}")
+        finally:
+            self._is_running = False
+            self._stop_event.set()
 
 # Initialize bot instance
 bot = AutoDeleteBot()
@@ -77,21 +90,17 @@ bot = AutoDeleteBot()
 @bot.on_message(filters.chat(Config.CHATS))
 async def handle_messages(client: AutoDeleteBot, message: Message):
     try:
-        # Check group authorization
         settings = await get_group_settings(message.chat.id)
         if not settings or not settings.get("authorized"):
             return
 
-        # Get custom deletion time or use default
         deletion_time = await get_group_deletion_time(message.chat.id) or Config.TIME
 
-        # Check white/black lists
         if Config.WHITE_LIST and message.from_user.id in Config.WHITE_LIST:
             return
         if Config.BLACK_LIST and message.from_user.id not in Config.BLACK_LIST:
             return
 
-        # Schedule deletion
         delete_at = int(time()) + deletion_time
         await save_message(message, delete_at)
         logger.debug(f"Scheduled deletion for message {message.id} in {message.chat.id}")
@@ -127,11 +136,15 @@ async def shutdown(signal=None):
 
 async def main():
     """Main application entry point"""
+    bot._is_running = True
+    
     # Set up signal handlers
     loop = asyncio.get_running_loop()
     
     def handle_signal(sig):
-        asyncio.create_task(shutdown(sig))
+        """Wrapper function for signal handling"""
+        if not bot._stop_event.is_set():
+            asyncio.create_task(shutdown(sig))
     
     for sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -144,6 +157,8 @@ async def main():
         await bot.start()
         logger.info("Bot started successfully!")
         await idle()
+    except asyncio.CancelledError:
+        logger.info("Shutdown requested")
     except Exception as e:
         logger.critical(f"Fatal error: {e}")
     finally:
@@ -154,11 +169,9 @@ if __name__ == "__main__":
     try:
         Config.validate()
         
-        # Windows compatibility
         if sys.platform == "win32":
             asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         
-        # Run with debug for better error tracking
         asyncio.run(main(), debug=True)
     except Exception as e:
         logger.critical(f"Startup failed: {e}")
