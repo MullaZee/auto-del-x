@@ -17,14 +17,63 @@
 #=========================================================================
 
 import os
+from typing import List, Union
 
-API_ID       = int(os.environ.get("API_ID", ""))
-API_HASH     = os.environ.get("API_HASH", "")
-BOT_TOKEN    = os.environ.get("BOT_TOKEN", "")
-SESSION      = os.environ.get("SESSION", "")
-TIME         = int(os.environ.get("TIME", 10))
-CHATS        = [int(cht) for cht in os.environ.get("CHATS", "").split()]
-WHITE_LIST   = [int(wht) for wht in os.environ.get("WHITE_LIST", "").split()]
-BLACK_LIST   = [int(blk) for blk in os.environ.get("BLACK_LIST", "").split()]
-DATABASE_URI = os.environ.get("DATABASE_URI", "")
-PORT         = os.environ.get("PORT", "8080")
+class Config:
+    # Required Telegram API credentials
+    API_ID: int = int(os.environ.get("API_ID", ""))
+    API_HASH: str = os.environ.get("API_HASH", "")
+    BOT_TOKEN: str = os.environ.get("BOT_TOKEN", "")
+    
+    # Session string (if needed for userbot functionality)
+    SESSION: str = os.environ.get("SESSION", "")
+    
+    # Default deletion time (seconds)
+    TIME: int = int(os.environ.get("TIME", 10))
+    
+    # Pre-authorized chats (legacy support)
+    CHATS: List[int] = [int(cht) for cht in os.environ.get("CHATS", "").split() if cht]
+    
+    # Whitelist and blacklist
+    WHITE_LIST: List[int] = [int(wht) for wht in os.environ.get("WHITE_LIST", "").split() if wht]
+    BLACK_LIST: List[int] = [int(blk) for blk in os.environ.get("BLACK_LIST", "").split() if blk]
+    
+    # Database configuration
+    DATABASE_URI: str = os.environ.get("DATABASE_URI", "")
+    
+    # Web server port
+    PORT: Union[str, int] = os.environ.get("PORT", "8080")
+    
+    # New settings for auth system
+    MIN_DELETION_TIME: int = 60  # Minimum allowed deletion time in seconds
+    MAX_DELETION_TIME: int = 86400  # 24 hours in seconds
+    
+    # Admin controls (optional)
+    ADMIN_ID: List[int] = [int(admin) for admin in os.environ.get("ADMIN_ID", "7439670062").split() if admin]
+    
+    # Web interface configuration (optional)
+    WEBHOOK: bool = os.environ.get("WEBHOOK", "False").lower() == "true"
+    WEBHOOK_URL: str = os.environ.get("WEBHOOK_URL", "")
+
+    @classmethod
+    def check_config(cls):
+        """Validate essential configuration"""
+        errors = []
+        if not cls.API_ID:
+            errors.append("API_ID is missing!")
+        if not cls.API_HASH:
+            errors.append("API_HASH is missing!")
+        if not cls.BOT_TOKEN:
+            errors.append("BOT_TOKEN is missing!")
+        if not cls.DATABASE_URI:
+            errors.append("DATABASE_URI is missing!")
+        
+        if errors:
+            raise ValueError("\n".join(errors))
+        
+        # Convert PORT to integer if it's numeric
+        if isinstance(cls.PORT, str) and cls.PORT.isdigit():
+            cls.PORT = int(cls.PORT)
+
+# Validate configuration on import
+Config.check_config()

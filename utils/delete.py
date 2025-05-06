@@ -20,6 +20,7 @@ import asyncio
 from . import * 
 from time import time 
 from pyrogram import Client, idle 
+
 #-------------------------------------------------------------------------------
 bot = Client("auto-delete-bot-2",
           api_id=API_ID,
@@ -30,21 +31,51 @@ bot = Client("auto-delete-bot-2",
 async def check_up(bot):   
     _time = int(time()) 
     all_data = get_all_data(_time)
+    
     for data in all_data:
         try:
-           await bot.delete_messages(chat_id=data["chat_id"],
-                               message_ids=data["message_id"])           
+            # Get group settings to check if still authorized
+            settings = get_group_settings(data["chat_id"])
+            
+            # Only delete if group is still authorized
+            if settings and settings.get("authorized"):
+                await bot.delete_messages(
+                    chat_id=data["chat_id"],
+                    message_ids=data["message_id"]
+                )
+                
+                # Get the message object for logging (optional)
+                try:
+                    msg = await bot.get_messages(
+                        data["chat_id"],
+                        data["message_id"]
+                    )
+                    print(f"Deleted message from {msg.chat.title} (ID: {msg.chat.id})")
+                except:
+                    pass
+                
         except Exception as e:
-           err=data
-           err["Error"]=str(e)
-           print(err)
+            err = data.copy()
+            err["Error"] = str(e)
+            print(err)
+    
     delete_all_data(all_data)
 
 async def run_check_up():
     async with bot:     
         while True:  
-           await check_up(bot)
-           await asyncio.sleep(1)
+            try:
+                await check_up(bot)
+            except Exception as e:
+                print(f"Error in main loop: {str(e)}")
+            await asyncio.sleep(1)
     
-if __name__=="__main__":   
-   asyncio.get_event_loop().run_until_complete(run_check_up())
+if __name__ == "__main__":   
+    # Initialize CHATS with authorized groups from database
+    authorized_groups = get_all_authorized_groups()
+    for group in authorized_groups:
+        if group["chat_id"] not in CHATS:
+            CHATS.append(group["chat_id"])
+    
+    # Start the bot
+    asyncio.get_event_loop().run_until_complete(run_check_up())

@@ -20,20 +20,50 @@ from . import *
 from pymongo import MongoClient
 
 dbclient = MongoClient(DATABASE_URI)
-db       = dbclient["Auto-Delete"]
-col      = db["DATA"]
+db = dbclient["Auto-Delete"]
+messages_col = db["MESSAGES"]  # Renamed for clarity
+groups_col = db["GROUPS"]      # New collection for group settings
 
 def save_message(message, time):
-    data = {"chat_id": message.chat.id,
-            "message_id": message.id,
-            "time": time}
-    col.insert_one(data)
+    data = {
+        "chat_id": message.chat.id,
+        "message_id": message.id,
+        "time": time
+    }
+    messages_col.insert_one(data)
    
 def get_all_data(time):
-    data     = {"time":{"$lte":time}}
-    all_data = list(col.find(data))
+    data = {"time": {"$lte": time}}
+    all_data = list(messages_col.find(data))
     return all_data
 
 def delete_all_data(all_data):
     for data in all_data:
-        col.delete_one(data)
+        messages_col.delete_one(data)
+
+# New functions for group management
+def save_group_settings(chat_id, authorized=False, deletion_time=None):
+    """Save group authorization and custom deletion time"""
+    settings = {
+        "chat_id": chat_id,
+        "authorized": authorized,
+        "deletion_time": deletion_time
+    }
+    groups_col.update_one(
+        {"chat_id": chat_id},
+        {"$set": settings},
+        upsert=True
+    )
+
+def get_group_settings(chat_id):
+    """Retrieve group settings"""
+    return groups_col.find_one({"chat_id": chat_id})
+
+def get_all_authorized_groups():
+    """Get all authorized groups"""
+    return list(groups_col.find({"authorized": True})
+
+def get_group_deletion_time(chat_id):
+    """Get custom deletion time for a group"""
+    settings = groups_col.find_one({"chat_id": chat_id})
+    return settings.get("deletion_time") if settings else None
