@@ -16,66 +16,41 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
-import asyncio 
-from . import * 
-from time import time 
-from pyrogram import Client, idle 
+import asyncio
+from time import time
+from pyrogram import Client
+from pyrogram.errors import FloodWait
+from .info import Config  # Import Config properly
 
-#-------------------------------------------------------------------------------
-bot = Client("auto-delete-bot-2",
-          api_id=API_ID,
-          api_hash=API_HASH,
-          bot_token=BOT_TOKEN)
-#-------------------------------------------------------------------------------
-
-async def check_up(bot):   
-    _time = int(time()) 
+async def check_up(bot):
+    _time = int(time())
     all_data = get_all_data(_time)
-    
     for data in all_data:
         try:
-            # Get group settings to check if still authorized
-            settings = get_group_settings(data["chat_id"])
-            
-            # Only delete if group is still authorized
-            if settings and settings.get("authorized"):
-                await bot.delete_messages(
-                    chat_id=data["chat_id"],
-                    message_ids=data["message_id"]
-                )
-                
-                # Get the message object for logging (optional)
-                try:
-                    msg = await bot.get_messages(
-                        data["chat_id"],
-                        data["message_id"]
-                    )
-                    print(f"Deleted message from {msg.chat.title} (ID: {msg.chat.id})")
-                except:
-                    pass
-                
+            await bot.delete_messages(
+                chat_id=data["chat_id"],
+                message_ids=data["message_id"]
+            )
+        except FloodWait as e:
+            print(f"FloodWait: Sleeping for {e.value} seconds")
+            await asyncio.sleep(e.value)
         except Exception as e:
-            err = data.copy()
-            err["Error"] = str(e)
-            print(err)
-    
+            print(f"Error deleting {data}: {e}")
     delete_all_data(all_data)
 
 async def run_check_up():
-    async with bot:     
-        while True:  
-            try:
-                await check_up(bot)
-            except Exception as e:
-                print(f"Error in main loop: {str(e)}")
+    # Initialize bot instance here with proper config
+    bot = Client(
+        "auto-delete-bot-2",
+        api_id=Config.API_ID,
+        api_hash=Config.API_HASH,
+        bot_token=Config.BOT_TOKEN
+    )
+    
+    async with bot:
+        while True:
+            await check_up(bot)
             await asyncio.sleep(1)
-    
-if __name__ == "__main__":   
-    # Initialize CHATS with authorized groups from database
-    authorized_groups = get_all_authorized_groups()
-    for group in authorized_groups:
-        if group["chat_id"] not in CHATS:
-            CHATS.append(group["chat_id"])
-    
-    # Start the bot
-    asyncio.get_event_loop().run_until_complete(run_check_up())
+
+if __name__ == "__main__":
+    asyncio.run(run_check_up())

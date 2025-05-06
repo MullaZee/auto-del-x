@@ -1,6 +1,23 @@
-pyrogram
-tgcrypto
-requests
-gunicorn
-pymongo[srv]
-flask[async] 
+# Core Telegram
+pyrogram==2.0.106
+tgcrypto==1.2.5
+
+# Database
+pymongo[srv]==4.3.3
+
+# Web Server
+gunicorn==20.1.0
+flask[async]==2.3.2
+
+# Utilities
+requests==2.31.0
+
+# Async
+aiohttp==3.8.5
+
+# Environment
+python-dotenv==1.0.0
+
+# Optional (for enhanced features)
+cachetools==5.3.1  # For rate limiting
+python-multipart==0.0.6  # For webhook handling

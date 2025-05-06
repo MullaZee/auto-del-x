@@ -19,29 +19,36 @@
 import asyncio
 from time import time
 from pyrogram import Client, filters
-from utils import (
-    API_ID, API_HASH, BOT_TOKEN, CHATS, 
-    WHITE_LIST, BLACK_LIST, TIME,
-    save_message, get_group_settings, save_group_settings,
-    get_all_authorized_groups, get_group_deletion_time
+from pyrogram.errors import FloodWait
+from utils.info import Config
+from utils.database import (
+    save_message,
+    get_group_settings,
+    save_group_settings,
+    get_all_authorized_groups,
+    get_group_deletion_time
 )
 
-# Initialize the bot
+# Initialize the bot with proper config
 Bot = Client(
     "auto-delete-bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
+    api_id=Config.API_ID,
+    api_hash=Config.API_HASH,
+    bot_token=Config.BOT_TOKEN
 )
 
 async def initialize_chats():
-    """Load authorized groups into CHATS on startup"""
-    authorized_groups = await get_all_authorized_groups()
-    for group in authorized_groups:
-        if group["chat_id"] not in CHATS:
-            CHATS.append(group["chat_id"])
+    """Load authorized groups from database on startup"""
+    try:
+        authorized_groups = await get_all_authorized_groups()
+        for group in authorized_groups:
+            if group["chat_id"] not in Config.CHATS:
+                Config.CHATS.append(group["chat_id"])
+        print(f"Initialized {len(authorized_groups)} authorized groups")
+    except Exception as e:
+        print(f"Error initializing chats: {e}")
 
-@Bot.on_message(filters.chat(CHATS))
+@Bot.on_message(filters.chat(Config.CHATS))
 async def handle_messages(bot, message):
     try:
         # Check group authorization
@@ -50,12 +57,12 @@ async def handle_messages(bot, message):
             return
 
         # Get custom deletion time or use default
-        deletion_time = await get_group_deletion_time(message.chat.id) or TIME
+        deletion_time = await get_group_deletion_time(message.chat.id) or Config.TIME
 
         # Check white/black lists
-        if WHITE_LIST and message.from_user.id in WHITE_LIST:
+        if Config.WHITE_LIST and message.from_user.id in Config.WHITE_LIST:
             return
-        if BLACK_LIST and message.from_user.id not in BLACK_LIST:
+        if Config.BLACK_LIST and message.from_user.id not in Config.BLACK_LIST:
             return
 
         # Schedule deletion
@@ -63,7 +70,7 @@ async def handle_messages(bot, message):
         await save_message(message, delete_at)
 
     except Exception as e:
-        print(f"Error handling message: {e}")
+        print(f"Error handling message in {message.chat.id}: {e}")
 
 @Bot.on_message(filters.command("start") & filters.private)
 async def start(bot, message):
@@ -82,10 +89,10 @@ async def start(bot, message):
 
 @Bot.on_message(filters.command("auth", prefixes="!"))
 async def handle_auth(bot, message):
-    if message.chat.type == "private":
-        return await message.reply("❌ This command works only in groups!")
-
     try:
+        if message.chat.type == "private":
+            return await message.reply("❌ This command works only in groups!")
+
         user = await bot.get_chat_member(message.chat.id, message.from_user.id)
         if user.status not in ["administrator", "creator"]:
             return await message.reply("🔒 Only admins can authorize this bot!")
@@ -97,65 +104,37 @@ async def handle_auth(bot, message):
         await save_group_settings(
             chat_id=message.chat.id,
             authorized=True,
-            deletion_time=TIME  # Default time
+            deletion_time=Config.TIME
         )
         
-        if message.chat.id not in CHATS:
-            CHATS.append(message.chat.id)
+        if message.chat.id not in Config.CHATS:
+            Config.CHATS.append(message.chat.id)
         
         await message.reply("✅ Bot authorized! Messages will now auto-delete.")
 
-    except Exception as e:
-        await message.reply(f"⚠️ Error: {str(e)}")
-
-@Bot.on_message(filters.command("unauth", prefixes="!"))
-async def handle_unauth(bot, message):
-    if message.chat.type == "private":
-        return await message.reply("❌ This command works only in groups!")
-
-    try:
-        user = await bot.get_chat_member(message.chat.id, message.from_user.id)
-        if user.status not in ["administrator", "creator"]:
-            return await message.reply("🔒 Only admins can unauthorize this bot!")
-
-        settings = await get_group_settings(message.chat.id)
-        if not settings or not settings.get("authorized"):
-            return await message.reply("ℹ️ Bot wasn't authorized here!")
-
-        await save_group_settings(
-            chat_id=message.chat.id,
-            authorized=False
-        )
-        
-        if message.chat.id in CHATS:
-            CHATS.remove(message.chat.id)
-        
-        await message.reply("❌ Bot access revoked. Messages won't be auto-deleted.")
-
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        await handle_auth(bot, message)
     except Exception as e:
         await message.reply(f"⚠️ Error: {str(e)}")
 
 @Bot.on_message(filters.command("settime", prefixes="!"))
 async def handle_settime(bot, message):
-    if message.chat.type == "private":
-        return await message.reply("❌ This command works only in groups!")
-
     try:
+        if message.chat.type == "private":
+            return await message.reply("❌ This command works only in groups!")
+
         user = await bot.get_chat_member(message.chat.id, message.from_user.id)
         if user.status not in ["administrator", "creator"]:
             return await message.reply("🔒 Only admins can set deletion time!")
 
-        # Check authorization first
         settings = await get_group_settings(message.chat.id)
         if not settings or not settings.get("authorized"):
             return await message.reply("⚠️ Please authorize bot with !auth first!")
 
         args = message.text.split()
         if len(args) < 2:
-            return await message.reply(
-                "⌛ Usage: `!settime [seconds]`\n"
-                "Example: `!settime 60` for 1 minute"
-            )
+            return await message.reply("⌛ Usage: `!settime [seconds]`")
 
         try:
             seconds = int(args[1])
@@ -174,6 +153,9 @@ async def handle_settime(bot, message):
         except ValueError:
             await message.reply("🔢 Please enter a valid number!")
 
+    except FloodWait as e:
+        await asyncio.sleep(e.value)
+        await handle_settime(bot, message)
     except Exception as e:
         await message.reply(f"⚠️ Error: {str(e)}")
 
@@ -184,7 +166,7 @@ async def handle_settings(bot, message):
         if not settings or not settings.get("authorized"):
             return await message.reply("ℹ️ Bot is not authorized in this group")
 
-        current_time = settings.get("deletion_time", TIME)
+        current_time = settings.get("deletion_time", Config.TIME)
         await message.reply(
             f"⚙️ Current Settings:\n"
             f"• Auto-delete time: {current_time} seconds\n"
@@ -196,9 +178,9 @@ async def handle_settings(bot, message):
 async def main():
     await initialize_chats()
     await Bot.start()
-    print("Bot started!")
+    print("Bot started successfully!")
     await idle()
-    await Bot.stop()
 
 if __name__ == "__main__":
+    Config.validate()  # Ensure required configs are set
     asyncio.run(main())

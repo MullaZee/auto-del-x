@@ -16,6 +16,26 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
-from .info import *
-from .delete import *
-from .database import *
+# Remove the wildcard import from delete.py
+from .info import Config
+from .database import (
+    save_message,
+    get_all_data,
+    delete_all_data,
+    save_group_settings,
+    get_group_settings,
+    get_all_authorized_groups,
+    get_group_deletion_time
+)
+
+# Explicitly export what you need
+__all__ = [
+    'Config',
+    'save_message',
+    'get_all_data',
+    'delete_all_data',
+    'save_group_settings',
+    'get_group_settings',
+    'get_all_authorized_groups',
+    'get_group_deletion_time'
+]
