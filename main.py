@@ -16,36 +16,68 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
-from utils import *
-from time import time 
-from subprocess import Popen
 from pyrogram import Client, filters
+from pyrogram.types import Message
+from time import time
+from subprocess import Popen
+from .database import *
+from .info import *
 
-Bot = Client("auto-delete-bot",
-          api_id=API_ID,
-          api_hash=API_HASH,
-          bot_token=BOT_TOKEN)
+Bot = Client(
+    "auto-delete-bot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    bot_token=BOT_TOKEN
+)
 
-@Bot.on_message(filters.chat(CHATS))
-async def delete(bot, message):
+@Bot.on_message(filters.command("auth") & filters.group)
+async def authorize_group(bot: Client, message: Message):
+    chat_id = message.chat.id
+    save_group_settings(chat_id, auth_status=True)
+    await message.reply("✅ **Group authorized!** Messages here will now be auto-deleted.")
+
+@Bot.on_message(filters.command("settime") & filters.group)
+async def set_custom_time(bot: Client, message: Message):
     try:
-       if bool(WHITE_LIST):
-          if message.from_user.id in WHITE_LIST:
-             return 
-       if bool(BLACK_LIST):
-          if message.from_user.id not in BLACK_LIST:
-             return
-       _time = int(time()) + TIME 
-       save_message(message, _time)
-    except Exception as e:
-       print(str(e))
+        time_arg = int(message.text.split()[1])
+        if time_arg < 10:
+            await message.reply("❌ Time must be ≥10 seconds.")
+            return
+        save_group_settings(message.chat.id, custom_time=time_arg)
+        await message.reply(f"⏳ **Auto-deletion time set to {time_arg} seconds.**")
+    except (IndexError, ValueError):
+        await message.reply("⚠️ Usage: `/settime <seconds>`")
+
+@Bot.on_message(filters.group)
+async def handle_messages(bot: Client, message: Message):
+    chat_id = message.chat.id
+    group = get_group_settings(chat_id)
+    
+    # Skip if group not authorized
+    if not group or not group.get("auth_status"):
+        return
+    
+    # Use group's custom time or default
+    custom_time = group.get("custom_time", TIME)
+    deletion_time = int(time()) + custom_time
+    
+    # Whitelist/Blacklist logic
+    user_id = message.from_user.id
+    if WHITE_LIST and user_id in WHITE_LIST:
+        return
+    if BLACK_LIST and user_id not in BLACK_LIST:
+        return
+    
+    save_message(message, deletion_time)
 
 @Bot.on_message(filters.command("start") & filters.private)
-async def start(bot, message):
-    await message.reply("Hi, I'm alive!")
+async def start(bot: Client, message: Message):
+    await message.reply(
+        "🤖 **AutoDelete Bot**\n"
+        "Authorize groups with `/auth` and set time with `/settime <seconds>`"
+    )
 
-#==========================================================
-
-Popen(f"gunicorn utils.server:app --bind 0.0.0.0:{PORT}", shell=True)
-Popen("python3 -m utils.delete", shell=True)
+# Start server and deleter
+Popen(["gunicorn", "utils.server:app", "--bind", f"0.0.0.0:{PORT}"])
+Popen(["python3", "-m", "utils.delete"])
 Bot.run()

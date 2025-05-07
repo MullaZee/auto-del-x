@@ -20,20 +20,35 @@ from . import *
 from pymongo import MongoClient
 
 dbclient = MongoClient(DATABASE_URI)
-db       = dbclient["Auto-Delete"]
-col      = db["DATA"]
+db = dbclient["Auto-Delete"]
+col = db["DATA"]
+groups_col = db["GROUPS"]  # New collection for group settings
 
 def save_message(message, time):
-    data = {"chat_id": message.chat.id,
-            "message_id": message.id,
-            "time": time}
+    data = {
+        "chat_id": message.chat.id,
+        "message_id": message.id,
+        "time": time
+    }
     col.insert_one(data)
-   
+
 def get_all_data(time):
-    data     = {"time":{"$lte":time}}
-    all_data = list(col.find(data))
-    return all_data
+    return list(col.find({"time": {"$lte": time}}))
 
 def delete_all_data(all_data):
-    for data in all_data:
-        col.delete_one(data)
+    ids = [data["_id"] for data in all_data]
+    col.delete_many({"_id": {"$in": ids}})
+
+# New functions for group settings
+def save_group_settings(chat_id, auth_status=True, custom_time=None):
+    groups_col.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"auth_status": auth_status, "custom_time": custom_time}},
+        upsert=True
+    )
+
+def get_group_settings(chat_id):
+    return groups_col.find_one({"chat_id": chat_id})
+
+def get_all_authorized_groups():
+    return list(groups_col.find({"auth_status": True}))
