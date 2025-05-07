@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # =========================================================================
-# AutoDelete Telegram Bot - Main Application File
-# Copyright (C) 2024-present
+# AutoDelete Telegram Bot - Main Application
 # =========================================================================
 
-import threading
-import signal
+import os
 import sys
 import time
+import signal
+import threading
 from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatMemberStatus
@@ -15,8 +15,6 @@ from pyrogram.enums import ChatMemberStatus
 # Local imports
 from utils.database import (
     save_message,
-    get_pending_messages,
-    delete_messages,
     save_group,
     get_group
 )
@@ -24,12 +22,30 @@ from utils.info import (
     API_ID,
     API_HASH,
     BOT_TOKEN,
-    ADMIN_ID,
     DEFAULT_TIME
 )
-from utils.server import run_server
 
-# Initialize bot
+# =========================================================================
+# FLASK SERVER SETUP
+# =========================================================================
+
+def run_flask_server():
+    """Run the Flask health check server"""
+    from flask import Flask
+    app = Flask(__name__)
+
+    @app.route('/')
+    def health_check():
+        return "AutoDelete Bot is running", 200
+
+    port = int(os.getenv("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
+
+# =========================================================================
+# TELEGRAM BOT SETUP
+# =========================================================================
+
+# Initialize Pyrogram Client
 Bot = Client(
     "auto-delete-bot",
     api_id=API_ID,
@@ -37,24 +53,26 @@ Bot = Client(
     bot_token=BOT_TOKEN
 )
 
-# ======================== COMMAND HANDLERS ========================
-
+# Admin check filter
 async def is_admin(_, __, message: Message):
-    """Check if user is admin/owner"""
     user = await Bot.get_chat_member(message.chat.id, message.from_user.id)
     return user.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]
 
 admin_filter = filters.create(is_admin)
+
+# =========================================================================
+# COMMAND HANDLERS
+# =========================================================================
 
 @Bot.on_message(filters.command("start"))
 async def start_command(_, message: Message):
     """Start command handler"""
     await message.reply(
         "🤖 AutoDelete Bot\n\n"
-        "Available Commands:\n"
-        "/auth - Enable bot in this group (Admins only)\n"
-        "/settime <seconds> - Set auto-delete delay\n"
-        "/status - Check bot settings"
+        "Commands:\n"
+        "/auth - Enable bot in this group\n"
+        "/settime <seconds> - Set deletion delay\n"
+        "/status - Check current settings"
     )
 
 @Bot.on_message(filters.command("auth") & filters.group & admin_filter)
@@ -76,7 +94,9 @@ async def set_delete_time(_, message: Message):
     except (IndexError, ValueError):
         await message.reply("⚠️ Usage: /settime <seconds>")
 
-# ======================== MESSAGE HANDLER ========================
+# =========================================================================
+# MESSAGE HANDLER
+# =========================================================================
 
 @Bot.on_message(filters.group)
 async def handle_message(_, message: Message):
@@ -88,27 +108,28 @@ async def handle_message(_, message: Message):
     delete_after = group.get("delete_after", DEFAULT_TIME)
     save_message(message.chat.id, message.id, int(time.time()) + delete_after)
 
-# ======================== SHUTDOWN HANDLER ========================
+# =========================================================================
+# MAIN EXECUTION
+# =========================================================================
 
 def signal_handler(sig, frame):
-    """Graceful shutdown handler"""
+    """Handle shutdown signals"""
     print("\n🛑 Stopping bot gracefully...")
     sys.exit(0)
 
-# ======================== MAIN EXECUTION ========================
-
 if __name__ == "__main__":
-    # Register signal handlers
+    # Set up signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
-    
+
     # Start Flask server in background thread
-    flask_thread = threading.Thread(target=run_server, daemon=True)
+    flask_thread = threading.Thread(target=run_flask_server, daemon=True)
     flask_thread.start()
-    
-    print("✅ Connected to MongoDB")
-    print("🌐 Flask server running on port", os.getenv("PORT", 8080))
+
+    # Startup message
+    print("✅ Services starting...")
+    print(f"🌐 Health check at http://0.0.0.0:{os.getenv('PORT', 8080)}")
     print("🤖 Starting Telegram Bot...")
-    
+
     # Run the bot
     Bot.run()

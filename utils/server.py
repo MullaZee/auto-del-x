@@ -17,12 +17,17 @@
 #=========================================================================
 
 from flask import Flask
+import os
+
 app = Flask(__name__)
 
-@app.route('/')
-def hello_world():
-    return '@RknDeveloperr'
+@app.route("/")
+def health_check():
+    return "AutoDelete Bot is running!", 200
 
+def run_server():
+    port = int(os.getenv("PORT", 8080))
+    app.run(host='0.0.0.0', port=port)
 
 if __name__ == "__main__":
-    app.run()
+    run_server()
