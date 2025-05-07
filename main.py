@@ -2,8 +2,8 @@ from pyrogram import Client, filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatMemberStatus
 from time import time
-from database import *
-from info import *
+from utils.database import *
+from utils.info import *
 import signal
 import sys
 
