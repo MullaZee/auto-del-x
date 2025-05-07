@@ -6,3 +6,4 @@ pymongo[srv]
 flask[async]
 apscheduler
 python-dotenv>=0.19.0
+waitress>=2.1.0
