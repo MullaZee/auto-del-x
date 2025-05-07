@@ -16,39 +16,48 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
-from . import * 
 from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
+from .info import DATABASE_URI
 
-dbclient = MongoClient(DATABASE_URI)
-db = dbclient["Auto-Delete"]
-col = db["DATA"]
-groups_col = db["GROUPS"]  # New collection for group settings
+# Initialize database with error handling
+try:
+    client = MongoClient(
+        DATABASE_URI,
+        connectTimeoutMS=5000,
+        serverSelectionTimeoutMS=5000
+    )
+    # Test connection
+    client.admin.command('ping')
+    db = client["Auto-Delete"]
+    col = db["Messages"]  # Stores messages to delete
+    groups_col = db["Groups"]  # Stores group settings
+    print("✅ Connected to MongoDB")
+except ConnectionFailure as e:
+    print(f"❌ MongoDB connection failed: {e}")
+    exit(1)
 
-def save_message(message, time):
-    data = {
-        "chat_id": message.chat.id,
-        "message_id": message.id,
-        "time": time
-    }
-    col.insert_one(data)
+def save_message(chat_id, message_id, delete_time):
+    col.insert_one({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "time": delete_time
+    })
 
-def get_all_data(time):
-    return list(col.find({"time": {"$lte": time}}))
+def get_pending_messages(current_time):
+    return list(col.find({"time": {"$lte": current_time}}))
 
-def delete_all_data(all_data):
-    ids = [data["_id"] for data in all_data]
+def delete_messages(message_list):
+    ids = [msg["_id"] for msg in message_list]
     col.delete_many({"_id": {"$in": ids}})
 
-# New functions for group settings
-def save_group_settings(chat_id, auth_status=True, custom_time=None):
+# Group management functions
+def save_group(chat_id, settings):
     groups_col.update_one(
         {"chat_id": chat_id},
-        {"$set": {"auth_status": auth_status, "custom_time": custom_time}},
+        {"$set": settings},
         upsert=True
     )
 
-def get_group_settings(chat_id):
+def get_group(chat_id):
     return groups_col.find_one({"chat_id": chat_id})
-
-def get_all_authorized_groups():
-    return list(groups_col.find({"auth_status": True}))

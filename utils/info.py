@@ -17,14 +17,27 @@
 #=========================================================================
 
 import os
+import sys
 
-API_ID = int(os.environ.get("API_ID", ""))
-API_HASH = os.environ.get("API_HASH", "")
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-SESSION = os.environ.get("SESSION", "")
-TIME = int(os.environ.get("TIME", 86400))  # Default: 24h
-CHATS = [int(cht) for cht in os.environ.get("CHATS", "").split()]
-WHITE_LIST = [int(wht) for wht in os.environ.get("WHITE_LIST", "").split()]
-BLACK_LIST = [int(blk) for blk in os.environ.get("BLACK_LIST", "").split()]
-DATABASE_URI = os.environ.get("DATABASE_URI", "")
-PORT = os.environ.get("PORT", "8080")
+# Required variables
+REQUIRED_VARS = [
+    "API_ID", "API_HASH", "BOT_TOKEN",
+    "DATABASE_URI", "ADMIN_ID"
+]
+
+# Load environment
+API_ID = int(os.getenv("API_ID", 0))
+API_HASH = os.getenv("API_HASH", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+DATABASE_URI = os.getenv("DATABASE_URI", "")
+ADMIN_ID = int(os.getenv("ADMIN_ID", 0))  # Your Telegram ID
+PORT = os.getenv("PORT", "8080")
+
+# Default settings
+DEFAULT_TIME = 86400  # 24 hours in seconds
+
+# Validate configuration
+missing = [var for var in REQUIRED_VARS if not globals()[var]]
+if missing:
+    print(f"❌ Missing environment variables: {', '.join(missing)}")
+    sys.exit(1)

@@ -3,4 +3,6 @@ tgcrypto
 requests
 gunicorn
 pymongo[srv]
-flask[async] 
+flask[async]
+apscheduler
+python-dotenv>=0.19.0

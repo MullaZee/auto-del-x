@@ -1,28 +1,21 @@
-#=========================================================================
-# [AutoDelete - Telegram bot to delete messages after specific time]      
-# Copyright (C) 2022 Arunkumar Shibu                       
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#=========================================================================
-
 from pyrogram import Client, filters
 from pyrogram.types import Message
+from pyrogram.enums import ChatMemberStatus
 from time import time
-from subprocess import Popen
 from .database import *
 from .info import *
+import signal
+import sys
 
+# Graceful shutdown handler
+def signal_handler(sig, frame):
+    print("\n🛑 Stopping bot gracefully...")
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# Initialize bot
 Bot = Client(
     "auto-delete-bot",
     api_id=API_ID,
@@ -30,54 +23,41 @@ Bot = Client(
     bot_token=BOT_TOKEN
 )
 
-@Bot.on_message(filters.command("auth") & filters.group)
-async def authorize_group(bot: Client, message: Message):
-    chat_id = message.chat.id
-    save_group_settings(chat_id, auth_status=True)
-    await message.reply("✅ **Group authorized!** Messages here will now be auto-deleted.")
+# Admin check filter
+async def is_admin(_, __, message: Message):
+    user = await Bot.get_chat_member(message.chat.id, message.from_user.id)
+    return user.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]
 
-@Bot.on_message(filters.command("settime") & filters.group)
-async def set_custom_time(bot: Client, message: Message):
+admin_filter = filters.create(is_admin)
+
+# Command handlers
+@Bot.on_message(filters.command("auth") & filters.group & admin_filter)
+async def enable_bot(_, message: Message):
+    save_group(message.chat.id, {"active": True})
+    await message.reply("✅ Bot activated for this group!")
+
+@Bot.on_message(filters.command("settime") & filters.group & admin_filter)
+async def set_time(_, message: Message):
     try:
-        time_arg = int(message.text.split()[1])
-        if time_arg < 10:
-            await message.reply("❌ Time must be ≥10 seconds.")
-            return
-        save_group_settings(message.chat.id, custom_time=time_arg)
-        await message.reply(f"⏳ **Auto-deletion time set to {time_arg} seconds.**")
+        seconds = int(message.text.split()[1])
+        if seconds < 10:
+            return await message.reply("⏱ Minimum time is 10 seconds")
+        
+        save_group(message.chat.id, {"delete_after": seconds})
+        await message.reply(f"⏰ Messages will auto-delete after {seconds} seconds")
     except (IndexError, ValueError):
-        await message.reply("⚠️ Usage: `/settime <seconds>`")
+        await message.reply("⚠️ Usage: /settime <seconds>")
 
+# Message handler
 @Bot.on_message(filters.group)
-async def handle_messages(bot: Client, message: Message):
-    chat_id = message.chat.id
-    group = get_group_settings(chat_id)
-    
-    # Skip if group not authorized
-    if not group or not group.get("auth_status"):
+async def process_message(_, message: Message):
+    group = get_group(message.chat.id)
+    if not group or not group.get("active"):
         return
     
-    # Use group's custom time or default
-    custom_time = group.get("custom_time", TIME)
-    deletion_time = int(time()) + custom_time
-    
-    # Whitelist/Blacklist logic
-    user_id = message.from_user.id
-    if WHITE_LIST and user_id in WHITE_LIST:
-        return
-    if BLACK_LIST and user_id not in BLACK_LIST:
-        return
-    
-    save_message(message, deletion_time)
+    delete_after = group.get("delete_after", DEFAULT_TIME)
+    save_message(message.chat.id, message.id, int(time()) + delete_after)
 
-@Bot.on_message(filters.command("start") & filters.private)
-async def start(bot: Client, message: Message):
-    await message.reply(
-        "🤖 **AutoDelete Bot**\n"
-        "Authorize groups with `/auth` and set time with `/settime <seconds>`"
-    )
-
-# Start server and deleter
-Popen(["gunicorn", "utils.server:app", "--bind", f"0.0.0.0:{PORT}"])
-Popen(["python3", "-m", "utils.delete"])
-Bot.run()
+if __name__ == "__main__":
+    print("🤖 Starting AutoDelete Bot...")
+    Bot.run()
