@@ -17,18 +17,12 @@
 #=========================================================================
 
 from flask import Flask
-from .info import PORT
-import os
 
 app = Flask(__name__)
 
 @app.route("/")
-def health_check():
-    return {
-        "status": "running",
-        "service": "AutoDelete Bot",
-        "version": "1.0"
-    }
+async def route():
+    return "<h1>Check <a href='https://github.com/saikatwtf/AutoDelete'>AutoDelete</a></h1>"
 
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(PORT))
+if __name__ == "__main__":     
+   app.run()
