@@ -38,6 +38,7 @@ except ConnectionFailure as e:
     exit(1)
 
 def save_message(chat_id, message_id, delete_time):
+    print(f"📝 Saving message {message_id} from chat {chat_id}")  # Debug
     col.insert_one({
         "chat_id": chat_id,
         "message_id": message_id,

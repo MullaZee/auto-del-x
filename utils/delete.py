@@ -1,56 +1,40 @@
-#=========================================================================
-# [AutoDelete - Telegram bot to delete messages after specific time]      
-# Copyright (C) 2022 Arunkumar Shibu                       
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#=========================================================================
-
+#!/usr/bin/env python3
 import asyncio
-from time import time
-from . import *
-from .database import *
+import time
 from pyrogram import Client
+from .database import get_pending_messages, delete_messages
+from .info import API_ID, API_HASH, BOT_TOKEN
 
 bot = Client(
-    "auto-delete-bot-2",
+    "auto-delete-worker",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN
 )
 
-async def check_up(bot):
-    current_time = int(time())
-    all_data = get_all_data(current_time)
-    authorized_groups = {g["chat_id"] for g in get_all_authorized_groups()}
-    
-    for data in all_data:
-        if data["chat_id"] not in authorized_groups:
-            continue
-        try:
-            await bot.delete_messages(
-                chat_id=data["chat_id"],
-                message_ids=data["message_id"]
-            )
-        except Exception as e:
-            print(f"Error deleting {data['message_id']}: {str(e)}")
-    delete_all_data(all_data)
-
-async def run_check_up():
+async def delete_job():
     async with bot:
         while True:
-            await check_up(bot)
-            await asyncio.sleep(1)
+            try:
+                current_time = int(time.time())
+                messages = get_pending_messages(current_time)
+                
+                if messages:
+                    print(f"⏰ Processing {len(messages)} messages...")
+                    for msg in messages:
+                        try:
+                            await bot.delete_messages(msg["chat_id"], msg["message_id"])
+                            print(f"🗑️ Deleted message {msg['message_id']} from chat {msg['chat_id']}")
+                        except Exception as e:
+                            print(f"❌ Failed to delete {msg['message_id']}: {str(e)}")
+                    
+                    delete_messages(messages)
+                
+                await asyncio.sleep(5)  # Check every 5 seconds
+            except Exception as e:
+                print(f"⚠️ Worker error: {str(e)}")
+                await asyncio.sleep(10)
 
 if __name__ == "__main__":
-    asyncio.get_event_loop().run_until_complete(run_check_up())
+    print("🔄 Starting deletion worker...")
+    asyncio.run(delete_job())
