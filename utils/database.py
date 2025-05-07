@@ -16,24 +16,45 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
-from . import * 
 from pymongo import MongoClient
+from info import DATABASE_URI, TIME
 
-dbclient = MongoClient(DATABASE_URI)
-db       = dbclient["Auto-Delete"]
-col      = db["DATA"]
+mongo = MongoClient(DATABASE_URI)
+db = mongo.autodelete
+group_collection = db.groups
+messages_collection = db.messages
 
-def save_message(message, time):
-    data = {"chat_id": message.chat.id,
-            "message_id": message.id,
-            "time": time}
-    col.insert_one(data)
-   
-def get_all_data(time):
-    data     = {"time":{"$lte":time}}
-    all_data = list(col.find(data))
-    return all_data
+def authorize_group(chat_id):
+    group_collection.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"authorized": True, "time": TIME}},
+        upsert=True
+    )
 
-def delete_all_data(all_data):
-    for data in all_data:
-        col.delete_one(data)
+def set_group_time(chat_id, seconds):
+    group_collection.update_one(
+        {"chat_id": chat_id},
+        {"$set": {"time": seconds}},
+        upsert=True
+    )
+
+def is_group_authorized(chat_id):
+    group = group_collection.find_one({"chat_id": chat_id, "authorized": True})
+    return group is not None
+
+def get_group_time(chat_id):
+    group = group_collection.find_one({"chat_id": chat_id})
+    return group.get("time", TIME) if group else TIME
+
+def save_message_for_deletion(chat_id, message_id, delete_at):
+    messages_collection.insert_one({
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "delete_at": delete_at
+    })
+
+def get_expired_messages(now):
+    return list(messages_collection.find({"delete_at": {"$lte": now}}))
+
+def delete_message_record(message_id):
+    messages_collection.delete_one({"_id": message_id})

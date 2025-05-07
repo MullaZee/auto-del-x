@@ -16,35 +16,33 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 #=========================================================================
 
-import asyncio 
-from . import * 
-from time import time 
-from pyrogram import Client, idle 
-#-------------------------------------------------------------------------------
-bot = Client("auto-delete-bot-2",
-          api_id=API_ID,
-          api_hash=API_HASH,
-          bot_token=BOT_TOKEN)
-#-------------------------------------------------------------------------------
+import asyncio
+import logging
+import time
+from pyrogram import Client
+from info import *
+from database import get_expired_messages, delete_message_record
 
-async def check_up(bot):   
-    _time = int(time()) 
-    all_data = get_all_data(_time)
-    for data in all_data:
-        try:
-           await bot.delete_messages(chat_id=data["chat_id"],
-                               message_ids=data["message_id"])           
-        except Exception as e:
-           err=data
-           err["Error"]=str(e)
-           print(err)
-    delete_all_data(all_data)
+logging.basicConfig(level=logging.INFO)
 
-async def run_check_up():
-    async with bot:     
-        while True:  
-           await check_up(bot)
-           await asyncio.sleep(1)
-    
-if __name__=="__main__":   
-   asyncio.get_event_loop().run_until_complete(run_check_up())
+Bot = Client("auto-delete-bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+async def delete_expired_messages():
+    while True:
+        now = int(time.time())
+        expired = get_expired_messages(now)
+        for msg in expired:
+            try:
+                await Bot.delete_messages(msg["chat_id"], msg["message_id"])
+                logging.info(f"Deleted message {msg['message_id']} in {msg['chat_id']}")
+            except Exception as e:
+                logging.warning(f"Failed to delete message {msg['message_id']]}: {e}")
+            delete_message_record(msg["_id"])
+        await asyncio.sleep(5)
+
+async def main():
+    await Bot.start()
+    await delete_expired_messages()
+
+if __name__ == "__main__":
+    asyncio.run(main())
