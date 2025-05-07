@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # =========================================================================
-# AutoDelete Telegram Bot - Production Ready Main File
+# AutoDelete Telegram Bot - Final Production Version
 # =========================================================================
 
 import os
@@ -10,9 +10,9 @@ import signal
 import threading
 from pyrogram import Client, filters
 from pyrogram.types import Message
-from pyrogram.enums import ChatMemberStatus
+from pyrogram.enums import ChatMemberStatus, ParseMode
 from flask import Flask, Response
-from waitress import serve  # Production-grade WSGI server
+from waitress import serve
 
 # Local imports
 from utils.database import (
@@ -28,17 +28,17 @@ from utils.info import (
     PORT
 )
 
-# ==================== PRODUCTION FLASK APP ====================
+# ==================== FLASK HEALTH CHECK SERVER ====================
 app = Flask(__name__)
 
 @app.route('/')
 def health_check():
-    """Simplified health check endpoint"""
-    return Response("AutoDelete Bot: OK", status=200, mimetype='text/plain')
+    """Simple health check endpoint"""
+    return Response("AutoDelete Bot: Running", status=200, mimetype='text/plain')
 
 def run_flask_server():
-    """Run production WSGI server"""
-    print(f"🌐 Production server started on port {PORT}")
+    """Start production WSGI server"""
+    print(f"🌐 Health check server running on port {PORT}")
     serve(app, host="0.0.0.0", port=PORT)
 
 # ==================== TELEGRAM BOT SETUP ====================
@@ -49,52 +49,60 @@ bot = Client(
     bot_token=BOT_TOKEN
 )
 
-# ==================== BOT COMMAND HANDLERS ====================
+# ==================== COMMAND HANDLERS ====================
 async def is_admin(_, __, message: Message):
-    """Check if user is admin"""
+    """Check if user is admin/owner"""
     try:
         user = await bot.get_chat_member(message.chat.id, message.from_user.id)
         return user.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.OWNER]
-    except:
+    except Exception:
         return False
 
 admin_filter = filters.create(is_admin)
 
 @bot.on_message(filters.command("start"))
 async def start_command(_, message: Message):
-    """Enhanced start command"""
-    await message.reply(
-        "🤖 <b>AutoDelete Bot</b>\n\n"
-        "<u>Available Commands:</u>\n"
-        "/auth - Enable bot in this group\n"
-        "/settime [seconds] - Set auto-delete delay\n"
-        "/status - Check current settings",
-        parse_mode="HTML"
-    )
+    """Start command with formatted help"""
+    help_text = """
+<b>🤖 AutoDelete Bot</b>
+
+<u>Available Commands:</u>
+• /auth - Enable bot in this group (Admins only)
+• /settime [seconds] - Set auto-delete delay
+• /status - Check current settings
+
+<i>Note: Bot needs delete messages permission</i>
+"""
+    await message.reply(help_text, parse_mode=ParseMode.HTML)
 
 @bot.on_message(filters.command("auth") & filters.group & admin_filter)
 async def auth_group(_, message: Message):
-    """Group authorization"""
+    """Authorize group for auto-deletion"""
     save_group(message.chat.id, {"active": True})
-    await message.reply("✅ <b>Bot activated for this group!</b>", parse_mode="HTML")
+    await message.reply("✅ <b>Bot activated for this group!</b>", parse_mode=ParseMode.HTML)
 
 @bot.on_message(filters.command("settime") & filters.group & admin_filter)
 async def set_delete_time(_, message: Message):
-    """Time configuration"""
+    """Set custom deletion time"""
     try:
+        # Validate command format
+        if len(message.text.split()) < 2:
+            raise ValueError("Missing time parameter")
+        
         seconds = int(message.text.split()[1])
         if seconds < 10:
-            return await message.reply("❌ Minimum time is 10 seconds")
+            await message.reply("❌ Minimum deletion time is 10 seconds")
+            return
         
         save_group(message.chat.id, {"delete_after": seconds})
-        await message.reply(f"⏰ Set auto-delete to {seconds} seconds")
-    except (IndexError, ValueError):
-        await message.reply("⚠️ Usage: <code>/settime &lt;seconds&gt;</code>", parse_mode="HTML")
+        await message.reply(f"⏰ Auto-delete set to {seconds} seconds")
+    except ValueError as e:
+        await message.reply(f"⚠️ Invalid input: {str(e)}\nUsage: /settime [seconds]")
 
 # ==================== MESSAGE PROCESSING ====================
 @bot.on_message(filters.group)
 async def process_message(_, message: Message):
-    """Message handler with error protection"""
+    """Handle incoming group messages"""
     try:
         group = get_group(message.chat.id)
         if not group or not group.get("active"):
@@ -107,12 +115,12 @@ async def process_message(_, message: Message):
 
 # ==================== PROCESS MANAGEMENT ====================
 def signal_handler(signum, frame):
-    """Graceful shutdown handler"""
-    print(f"\n🛑 Received signal {signum}, shutting down...")
+    """Handle graceful shutdown"""
+    print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
     sys.exit(0)
 
 def main():
-    """Main execution flow"""
+    """Main application entry point"""
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -122,10 +130,10 @@ def main():
     flask_thread.start()
     
     print("✅ Services initialized")
-    print(f"🌐 Health check: http://0.0.0.0:{PORT}")
+    print(f"🌐 Health check endpoint: http://0.0.0.0:{PORT}")
     print("🤖 Starting Telegram Bot...")
     
-    # Run bot
+    # Run the bot
     bot.run()
 
 if __name__ == "__main__":
