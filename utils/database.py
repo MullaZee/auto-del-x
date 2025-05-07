@@ -1,59 +1,45 @@
-#=========================================================================
-# [AutoDelete - Telegram bot to delete messages after specific time]      
-# Copyright (C) 2022 Arunkumar Shibu                       
-#
-# This program is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Affero General Public License as
-# published by the Free Software Foundation, either version 3 of the
-# License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Affero General Public License for more details.
-#
-# You should have received a copy of the GNU Affero General Public License
-# along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#=========================================================================
-
 from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure
-from .info import DATABASE_URI
+from datetime import datetime
+import os
 
-# Initialize database with error handling
+# Initialize MongoDB connection
 try:
-    client = MongoClient(
-        DATABASE_URI,
-        connectTimeoutMS=5000,
-        serverSelectionTimeoutMS=5000
-    )
-    # Test connection
-    client.admin.command('ping')
-    db = client["Auto-Delete"]
-    col = db["Messages"]  # Stores messages to delete
-    groups_col = db["Groups"]  # Stores group settings
-    print("✅ Connected to MongoDB")
+    client = MongoClient(os.getenv("DATABASE_URI"))
+    client.admin.command('ping')  # Test connection
+    db = client["AutoDelete"]
+    messages_col = db["Messages"]
+    groups_col = db["Groups"]
+    print("✅ MongoDB connection established")
 except ConnectionFailure as e:
     print(f"❌ MongoDB connection failed: {e}")
     exit(1)
 
 def save_message(chat_id, message_id, delete_time):
-    print(f"📝 Saving message {message_id} from chat {chat_id}")  # Debug
-    col.insert_one({
+    """Save message to database with deletion time"""
+    messages_col.insert_one({
         "chat_id": chat_id,
         "message_id": message_id,
-        "time": delete_time
+        "time": delete_time,
+        "saved_at": datetime.utcnow()
     })
 
 def get_pending_messages(current_time):
-    return list(col.find({"time": {"$lte": current_time}}))
+    """Get messages ready for deletion"""
+    return list(messages_col.find({
+        "time": {"$lte": current_time}
+    }))
 
 def delete_messages(message_list):
-    ids = [msg["_id"] for msg in message_list]
-    col.delete_many({"_id": {"$in": ids}})
+    """Remove processed messages from database"""
+    if message_list:
+        messages_col.delete_many({
+            "_id": {"$in": [msg["_id"] for msg in message_list]}
+        })
 
-# Group management functions
 def save_group(chat_id, settings):
+    """Save or update group settings"""
+    settings["last_updated"] = datetime.utcnow()
     groups_col.update_one(
         {"chat_id": chat_id},
         {"$set": settings},
@@ -61,4 +47,9 @@ def save_group(chat_id, settings):
     )
 
 def get_group(chat_id):
+    """Get group settings"""
     return groups_col.find_one({"chat_id": chat_id})
+
+def get_all_active_groups():
+    """List all authorized groups"""
+    return list(groups_col.find({"active": True}))
